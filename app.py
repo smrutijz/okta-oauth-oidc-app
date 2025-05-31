@@ -37,7 +37,7 @@ okta = oauth.register(
 def homepage():
     user = dict(session).get('user')
     if user:
-        return f'Hello, {user["name"]}! <a href="/logout">Logout</a>'
+        return f'Hello, {user["name"]}! You may close this page or <a href="/logout">Logout</a>'
     return '<a href="/login">Login with Okta</a>'
 
 @app.route('/login')
