@@ -26,7 +26,7 @@ okta = oauth.register(
     name='okta',
     client_id=os.getenv("OKTA_CLIENT_ID"),
     client_secret=os.getenv("OKTA_CLIENT_SECRET"),
-    server_metadata_url=os.getenv("SERVER_METADATA_ENDPOINT"),
+    server_metadata_url=f"https://${os.getenv('OKTA_DOMAIN')}/.well-known/openid-configuration",
     client_kwargs={
         'scope': 'openid profile email',
         'verify': False
