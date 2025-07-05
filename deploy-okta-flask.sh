@@ -1,34 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure domain and email are provided
 DOMAIN=${1:? "Usage: $0 <domain> <email>"}
 EMAIL=${2:? "Usage: $0 <domain> <email>"}
 
-# Define paths
 NGINX_CONF_DIR="/etc/nginx/sites-available"
 NGINX_ENABLED_DIR="/etc/nginx/sites-enabled"
-APP_DIR="/app"
 
-# Install necessary packages
 echo "📦 Installing Docker, Nginx & Certbot..."
 apt-get update -y
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  docker.io \
-  nginx \
-  certbot \
-  python3-certbot-nginx \
-  git
+  docker.io nginx certbot python3-certbot-nginx git
 
-# Enable Docker service
 echo "🚀 Enabling Docker..."
 systemctl enable --now docker
 
+# Initial Nginx placeholder to allow Certbot validation
+echo "⚙️ Setting up temporary Nginx config for domain verification..."
+cat > "$NGINX_CONF_DIR/$DOMAIN.init" <<EOF
+server {
+  listen 80;
+  server_name $DOMAIN;
+  location / {
+    return 200 'OK';
+    add_header Content-Type text/plain;
+  }
+}
+EOF
+ln -sf "$NGINX_CONF_DIR/$DOMAIN.init" "$NGINX_ENABLED_DIR/$DOMAIN.init"
+systemctl reload nginx
 
-# Configure Nginx for the domain
-echo "🛠️ Configuring Nginx..."
-mkdir -p $NGINX_CONF_DIR
-cat <<EOF > $NGINX_CONF_DIR/$DOMAIN
+echo "🔐 Obtaining SSL certificate..."
+certbot --non-interactive --agree-tos --nginx -m "$EMAIL" \
+  -d "$DOMAIN"
+
+# Remove placeholder and write final SSL-enabled config
+echo "🛠️ Writing final Nginx config with SSL..."
+cat > "$NGINX_CONF_DIR/$DOMAIN" <<EOF
 server {
   listen 80;
   server_name $DOMAIN;
@@ -56,26 +64,18 @@ server {
 }
 EOF
 
-# Enable the Nginx site configuration
-ln -sf $NGINX_CONF_DIR/$DOMAIN $NGINX_ENABLED_DIR/$DOMAIN
-
-# Reload Nginx to apply changes
+# Swap configs
+rm -f "$NGINX_ENABLED_DIR/$DOMAIN.init"
+ln -sf "$NGINX_CONF_DIR/$DOMAIN" "$NGINX_ENABLED_DIR/$DOMAIN"
 systemctl reload nginx
 
-# Obtain SSL certificate using Certbot
-echo "🔐 Obtaining SSL certificate..."
-certbot --non-interactive --agree-tos --nginx --redirect -m "$EMAIL" -d "$DOMAIN"
-
-# Build and start the application using Docker Compose
-echo "🐳 Building and starting the application..."
+echo "🐳 Launching your application via Docker Compose..."
 docker-compose up --build -d
 
-# Wait for the application to be ready
-echo -n "⏳ Waiting for the application to start..."
+echo -n "⏳ Waiting for your app to respond..."
 until curl -fs http://localhost:8080 >/dev/null; do
   printf "."
   sleep 2
 done
-echo " ✅ Application is ready!"
 
-echo "🎉 Deployment complete — access your application at: https://$DOMAIN"
+echo "✅ Application is ready at https://$DOMAIN!"
