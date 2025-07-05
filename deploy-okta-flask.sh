@@ -84,7 +84,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 # 🚀 Run the app using Docker Compose
 echo "🔧 Building and launching the Flask app..."
-docker compose up --build -d
+sudo docker compose up --build -d
 
 echo "✅ Deployment complete! 🎉"
 echo "👉 Open https://$DOMAIN in your browser."
