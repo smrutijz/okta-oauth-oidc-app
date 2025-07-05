@@ -1,77 +1,77 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Exit on error
-set -e
+# Load parameters
+DOMAIN=${1:? "Usage: $0 <domain> <email>"}
+EMAIL=${2:? "Usage: $0 <domain> <email>"}
 
-# 🐳 Install Docker Engine
-echo "🔧 Installing Docker Engine..."
-sudo apt-get update
-sudo apt-get install -y \
-  ca-certificates \
-  curl \
-  gnupg \
-  lsb-release \
-  apt-transport-https
+echo "🏷️ Installing for domain: $DOMAIN with email: $EMAIL"
 
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo tee /etc/apt/keyrings/docker.asc
-echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
-sudo apt-get update
+# 🐳 Docker Engine & Compose installation
+sudo apt-get update -y
+sudo apt-get install -y ca-certificates curl gnupg lsb-release
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+  sudo tee /etc/apt/keyrings/docker.asc > /dev/null
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update -y
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io
 
-# 🐳 Install Docker Compose Plugin (V2)
-echo "🔧 Installing Docker Compose Plugin..."
-sudo apt-get install -y docker-compose-plugin
+# Docker Compose plugin install
+DOCKER_COMPOSE_VERSION="v2.38.1"
+sudo mkdir -p ~/.docker/cli-plugins
+curl -SL "https://github.com/docker/compose/releases/download/$DOCKER_COMPOSE_VERSION/docker-compose-linux-$(dpkg --print-architecture)" \
+  -o ~/.docker/cli-plugins/docker-compose
+sudo chmod +x ~/.docker/cli-plugins/docker-compose
 
-# 🔁 Enable Docker service
-echo "🔁 Enabling Docker service..."
-sudo systemctl enable --now docker
+echo "– Docker Compose installed as 'docker compose'"
 
-# 🔐 Install Certbot for SSL
-echo "🔐 Installing Certbot..."
+# 🔐 Certbot install
 sudo apt-get install -y certbot python3-certbot-nginx
 
-# 🛠️ Configure Nginx
-echo "🛠️ Configuring Nginx..."
-sudo tee /etc/nginx/sites-available/okta.dev.smrutiaisolution.fun <<EOF
+# 🛠️ Nginx temp config for HTTP
+sudo tee /etc/nginx/sites-available/$DOMAIN <<EOF
 server {
   listen 80;
-  server_name okta.dev.smrutiaisolution.fun;
-  location / { return 200 'OK'; add_header Content-Type text/plain; }
+  server_name $DOMAIN;
+  location / {
+    return 200 'OK';
+    add_header Content-Type text/plain;
+  }
 }
 EOF
-
-# 🔗 Enable Nginx site
-sudo ln -s /etc/nginx/sites-available/okta.dev.smrutiaisolution.fun /etc/nginx/sites-enabled/
-
-# 🔄 Reload Nginx to apply changes
-echo "🔄 Reloading Nginx..."
+sudo ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/$DOMAIN
 sudo nginx -t && sudo systemctl reload nginx
 
-# 🔐 Obtain SSL certificate
-echo "🔐 Obtaining SSL certificate..."
-sudo certbot --non-interactive --agree-tos --nginx \
-  -m "YOUR_EMAIL" -d okta.dev.smrutiaisolution.fun
+# 🔐 Obtain SSL cert
+sudo certbot --non-interactive --agree-tos \
+  --email "$EMAIL" --nginx -d "$DOMAIN"
 
-# 🛠️ Final Nginx configuration
-echo "🛠️ Finalizing Nginx configuration..."
-sudo tee /etc/nginx/sites-available/okta.dev.smrutiaisolution.fun <<EOF
+# 🛡️ Final HTTPS Nginx config
+sudo tee /etc/nginx/sites-available/$DOMAIN <<EOF
 server {
   listen 80;
-  server_name okta.dev.smrutiaisolution.fun;
+  server_name $DOMAIN;
   return 301 https://\$host\$request_uri;
 }
 
 server {
-  listen 443 ssl http2;
-  server_name okta.dev.smrutiaisolution.fun;
+  listen 443 ssl;
+  listen [::]:443 ssl;
+  http2 on;
 
-  ssl_certificate /etc/letsencrypt/live/okta.dev.smrutiaisolution.fun/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/okta.dev.smrutiaisolution.fun/privkey.pem;
-  include /etc/letsencrypt/options-ssl-nginx.conf;
-  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+  server_name $DOMAIN;
+  ssl_certificate     /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+  include             /etc/letsencrypt/options-ssl-nginx.conf;
+  ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
 
   location / {
     proxy_pass http://localhost:8080;
+    proxy_http_version 1.1;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -79,25 +79,12 @@ server {
   }
 }
 EOF
-
-# 🔗 Enable final Nginx site and reload
-sudo ln -sf /etc/nginx/sites-available/okta.dev.smrutiaisolution.fun /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/$DOMAIN
 sudo nginx -t && sudo systemctl reload nginx
 
-# 🐳 Docker Compose setup
-echo "🐳 Setting up Docker Compose..."
-DOCKER_COMPOSE_VERSION="2.38.1"
-DOCKER_COMPOSE_PATH="${DOCKER_CONFIG:-$HOME/.docker}/cli-plugins/docker-compose"
-mkdir -p "$(dirname "$DOCKER_COMPOSE_PATH")"
-curl -SL "https://github.com/docker/compose/releases/download/v$DOCKER_COMPOSE_VERSION/docker-compose-linux-x86_64" -o "$DOCKER_COMPOSE_PATH"
-chmod +x "$DOCKER_COMPOSE_PATH"
+# 🚀 Run the app using Docker Compose
+echo "🔧 Building and launching the Flask app..."
+docker compose up --build -d
 
-# 🐳 Docker Compose version check
-echo "🐳 Verifying Docker Compose installation..."
-docker compose version
-
-# 🚀 Build and run Flask app using Docker Compose
-echo "🚀 Building and running Flask app..."
-docker compose -f ./docker-compose.yml up -d
-
-echo "✅ Deployment complete!"
+echo "✅ Deployment complete! 🎉"
+echo "👉 Open https://$DOMAIN in your browser."
