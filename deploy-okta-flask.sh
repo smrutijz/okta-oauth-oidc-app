@@ -4,27 +4,24 @@ set -euo pipefail
 DOMAIN=${1:? "Usage: $0 <domain> <email>"}
 EMAIL=${2:? "Usage: $0 <domain> <email>"}
 
-echo "➡️ Deploying app for: $DOMAIN"
+echo "➡️ Deploying Flask‑Okta app at: $DOMAIN"
 
-# 1. Install Docker from Ubuntu's universe (docker.io)
+# 📦 Install Docker from Ubuntu repo
 sudo apt-get update -y
-sudo apt-get install -y docker.io docker-compose-plugin
+sudo apt-get install -y docker.io docker-compose certbot python3-certbot-nginx nginx
 
-# 2. Ensure Docker daemon is enabled
+# 🚀 Enable Docker
 sudo systemctl enable --now docker
 
-# 3. Add your user to the docker group (so `docker compose` works without sudo)
+# 👤 Add user to docker group
 sudo groupadd -f docker
 sudo usermod -aG docker "${SUDO_USER:-$USER}" || true
 
-# 4. Build and start your Flask app
-docker compose build
-docker compose up -d
+# 🐳 Build & run Flask app
+docker-compose build
+docker-compose up -d
 
-# 5. Install Nginx & Certbot
-sudo apt-get install -y nginx certbot python3-certbot-nginx
-
-# 6. Temporary Nginx conf for certificate issuance
+# 📦 Setup temporary Nginx for certbot
 sudo tee /etc/nginx/sites-available/$DOMAIN.tmp >/dev/null <<EOF
 server {
   listen 80;
@@ -36,13 +33,14 @@ EOF
 sudo ln -sf /etc/nginx/sites-available/$DOMAIN.tmp /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 
-# 7. Obtain SSL certificate
+# 🔐 Request SSL cert
 sudo certbot --nginx --non-interactive --agree-tos -m "$EMAIL" -d "$DOMAIN"
 
-# 8. Final HTTPS reverse proxy setup
+# 🛡️ Final Nginx HTTPS config
 sudo tee /etc/nginx/sites-available/$DOMAIN >/dev/null <<EOF
 server {
   listen 80;
+  listen [::]:80;
   server_name $DOMAIN;
   return 301 https://\$host\$request_uri;
 }
@@ -50,14 +48,12 @@ server {
   listen 443 ssl http2;
   listen [::]:443 ssl http2;
   server_name $DOMAIN;
-
-  ssl_certificate     /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+  ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
-  include             /etc/letsencrypt/options-ssl-nginx.conf;
-  ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
-
+  include /etc/letsencrypt/options-ssl-nginx.conf;
+  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
   location / {
-    proxy_pass http://localhost:8080;
+    proxy_pass http://127.0.0.1:8080;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -69,5 +65,5 @@ sudo ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/$DOMAIN.tmp
 sudo nginx -t && sudo systemctl reload nginx
 
-echo "✅ Deployment complete for https://$DOMAIN"
-echo "⚠️ Run 'newgrp docker' or re-login to use Docker without sudo."
+echo "✅ Deployed: https://$DOMAIN"
+echo "ℹ️ Run 'newgrp docker' or re-login to use Docker without sudo."
