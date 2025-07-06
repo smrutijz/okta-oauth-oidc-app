@@ -84,6 +84,7 @@ sudo systemctl reload nginx
 
 # Launch the Flask app using Docker Compose
 echo "🚀 Launching Flask app via Docker Compose..."
+sudo docker compose up --build -d
 sudo systemctl start docker
 sudo docker compose up --build -d
 
