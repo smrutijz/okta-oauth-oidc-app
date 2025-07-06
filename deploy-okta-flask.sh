@@ -1,68 +1,68 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Load parameters
 DOMAIN=${1:? "Usage: $0 <domain> <email>"}
 EMAIL=${2:? "Usage: $0 <domain> <email>"}
 
-echo "🏷️ Installing for domain: $DOMAIN with email: $EMAIL"
+echo "➡️ Deploying Flask-Okta app at: $DOMAIN"
 
-# Install Docker Engine
+# 1. Install Docker & Compose plugin
+echo "📦 Installing Docker & Compose..."
 sudo apt-get update -y
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-  sudo tee /etc/apt/keyrings/docker.asc > /dev/null
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-  https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update -y
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+sudo apt-get install -y \
+  ca-certificates curl gnupg lsb-release \
+  docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-# Install Docker Compose plugin
-sudo apt-get install -y docker-compose-plugin
+# 2. Start Docker and allow non-root access
+echo "🚀 Enabling Docker..."
+sudo systemctl enable --now docker
+sudo groupadd -f docker
+sudo usermod -aG docker "${SUDO_USER:-$USER}" || true
 
-echo "✅ Docker Compose installed and available as 'docker compose'"
+# 3. Prepare Flask project
+echo "🔧 Building Flask container..."
+docker compose build
 
-# Install Certbot
-sudo apt-get install -y certbot python3-certbot-nginx
+echo "🧪 Starting Flask app..."
+docker compose up -d
 
-# Create temporary HTTP-only Nginx config for Let's Encrypt
+# 4. Install Nginx & Certbot
+echo "📦 Installing Nginx & Certbot..."
+sudo apt-get install -y nginx certbot python3-certbot-nginx
+
+# 5. Temporary Nginx setup for cert issuance
+echo "🛡️ ./ Creating temp HTTP Nginx config..."
 sudo tee /etc/nginx/sites-available/$DOMAIN.tmp >/dev/null <<EOF
 server {
   listen 80;
   server_name $DOMAIN;
-  location /.well-known/acme-challenge/ {
-    root /var/www/html;
-  }
-  location / {
-    return 200 'OK';
-    add_header Content-Type text/plain;
-  }
+  root /var/www/html;
+  location /.well-known/acme-challenge/ { allow all; }
+  location / { return 200 'OK'; add_header Content-Type text/plain; }
 }
 EOF
 sudo ln -sf /etc/nginx/sites-available/$DOMAIN.tmp /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
+sudo nginx -t && sudo systemctl reload nginx
 
-# Request SSL certificate via Certbot
-sudo certbot --non-interactive --agree-tos --email "$EMAIL" --nginx -d "$DOMAIN"
+# 6. Get SSL certificate
+echo "🔐 Requesting SSL from Let's Encrypt..."
+sudo certbot --non-interactive --agree-tos \
+  --email "$EMAIL" --nginx -d "$DOMAIN"
 
-# Create final HTTPS Nginx config
+# 7. Final HTTPS Nginx config
+echo "🛡️ ./ Writing HTTPS reverse proxy config..."
 sudo tee /etc/nginx/sites-available/$DOMAIN >/dev/null <<EOF
 server {
   listen 80;
+  listen [::]:80;
   server_name $DOMAIN;
   return 301 https://\$host\$request_uri;
 }
-
 server {
-  listen 443 ssl;
-  listen [::]:443 ssl;
-  http2 on;
-
+  listen 443 ssl http2;
+  listen [::]:443 ssl http2;
   server_name $DOMAIN;
+
   ssl_certificate     /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
   include             /etc/letsencrypt/options-ssl-nginx.conf;
@@ -78,13 +78,11 @@ server {
   }
 }
 EOF
+
 sudo ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
+sudo rm -f /etc/nginx/sites-enabled/$DOMAIN.tmp
+sudo nginx -t && sudo systemctl reload nginx
 
-# Launch the Flask app using Docker Compose
-echo "🚀 Launching Flask app via Docker Compose..."
-sudo docker compose up -d
-
-echo "✅ Deployment complete! 🎉"
-echo "👉 Your app is available at: https://$DOMAIN"
+echo "✅ Deployment complete!"
+echo "Visit: https://$DOMAIN"
+echo "ℹ️ If you want to run Docker without sudo, log out then back in (or run: newgrp docker)"
