@@ -7,7 +7,7 @@ EMAIL=${2:? "Usage: $0 <domain> <email>"}
 
 echo "🏷️ Installing for domain: $DOMAIN with email: $EMAIL"
 
-# 🐳 Docker Engine & Compose installation
+# Install Docker Engine
 sudo apt-get update -y
 sudo apt-get install -y ca-certificates curl gnupg lsb-release
 sudo mkdir -p /etc/apt/keyrings
@@ -20,38 +20,37 @@ echo \
 sudo apt-get update -y
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io
 
-# Docker Compose plugin install
-DOCKER_COMPOSE_VERSION="v2.38.1"
-sudo mkdir -p ~/.docker/cli-plugins
-curl -SL "https://github.com/docker/compose/releases/download/$DOCKER_COMPOSE_VERSION/docker-compose-linux-$(dpkg --print-architecture)" \
-  -o ~/.docker/cli-plugins/docker-compose
-sudo chmod +x ~/.docker/cli-plugins/docker-compose
+# Install Docker Compose plugin
+sudo apt-get install -y docker-compose-plugin
 
-echo "– Docker Compose installed as 'docker compose'"
+echo "✅ Docker Compose installed and available as 'docker compose'"
 
-# 🔐 Certbot install
+# Install Certbot
 sudo apt-get install -y certbot python3-certbot-nginx
 
-# 🛠️ Nginx temp config for HTTP
-sudo tee /etc/nginx/sites-available/$DOMAIN <<EOF
+# Create temporary HTTP-only Nginx config for Let's Encrypt
+sudo tee /etc/nginx/sites-available/$DOMAIN.tmp >/dev/null <<EOF
 server {
   listen 80;
   server_name $DOMAIN;
+  location /.well-known/acme-challenge/ {
+    root /var/www/html;
+  }
   location / {
     return 200 'OK';
     add_header Content-Type text/plain;
   }
 }
 EOF
-sudo ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/$DOMAIN
-sudo nginx -t && sudo systemctl reload nginx
+sudo ln -sf /etc/nginx/sites-available/$DOMAIN.tmp /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
 
-# 🔐 Obtain SSL cert
-sudo certbot --non-interactive --agree-tos \
-  --email "$EMAIL" --nginx -d "$DOMAIN"
+# Request SSL certificate via Certbot
+sudo certbot --non-interactive --agree-tos --email "$EMAIL" --nginx -d "$DOMAIN"
 
-# 🛡️ Final HTTPS Nginx config
-sudo tee /etc/nginx/sites-available/$DOMAIN <<EOF
+# Create final HTTPS Nginx config
+sudo tee /etc/nginx/sites-available/$DOMAIN >/dev/null <<EOF
 server {
   listen 80;
   server_name $DOMAIN;
@@ -79,12 +78,13 @@ server {
   }
 }
 EOF
-sudo ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/$DOMAIN
-sudo nginx -t && sudo systemctl reload nginx
+sudo ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
 
-# 🚀 Run the app using Docker Compose
-echo "🔧 Building and launching the Flask app..."
-sudo docker compose up --build -d
+# Launch the Flask app using Docker Compose
+echo "🚀 Launching Flask app via Docker Compose..."
+sudo docker compose up -d
 
 echo "✅ Deployment complete! 🎉"
-echo "👉 Open https://$DOMAIN in your browser."
+echo "👉 Your app is available at: https://$DOMAIN"
