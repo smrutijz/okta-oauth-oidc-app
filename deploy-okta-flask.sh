@@ -4,24 +4,24 @@ set -euo pipefail
 DOMAIN=${1:? "Usage: $0 <domain> <email>"}
 EMAIL=${2:? "Usage: $0 <domain> <email>"}
 
-echo "➡️ Deploying Flask‑Okta app at: $DOMAIN"
+echo "➡️ Deploying Flask-Okta app at: $DOMAIN"
 
-# 📦 Install Docker from Ubuntu repo
+# Install dependencies
 sudo apt-get update -y
-sudo apt-get install -y docker.io docker-compose certbot python3-certbot-nginx nginx
+sudo apt-get install -y docker.io docker-compose nginx certbot python3-certbot-nginx
 
-# 🚀 Enable Docker
+# Enable Docker
 sudo systemctl enable --now docker
 
-# 👤 Add user to docker group
+# Allow your user to run Docker without sudo
 sudo groupadd -f docker
 sudo usermod -aG docker "${SUDO_USER:-$USER}" || true
 
-# 🐳 Build & run Flask app
+# Build and start Flask app
 docker-compose build
 docker-compose up -d
 
-# 📦 Setup temporary Nginx for certbot
+# Temporary Nginx for certbot
 sudo tee /etc/nginx/sites-available/$DOMAIN.tmp >/dev/null <<EOF
 server {
   listen 80;
@@ -33,14 +33,13 @@ EOF
 sudo ln -sf /etc/nginx/sites-available/$DOMAIN.tmp /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 
-# 🔐 Request SSL cert
+# Obtain SSL certificate
 sudo certbot --nginx --non-interactive --agree-tos -m "$EMAIL" -d "$DOMAIN"
 
-# 🛡️ Final Nginx HTTPS config
+# Final HTTPS Nginx config
 sudo tee /etc/nginx/sites-available/$DOMAIN >/dev/null <<EOF
 server {
   listen 80;
-  listen [::]:80;
   server_name $DOMAIN;
   return 301 https://\$host\$request_uri;
 }
