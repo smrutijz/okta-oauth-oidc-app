@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   app:
-    image: smrutijz/okta-oauth-oidc-app:latest  # Replace with your actual image
+    image: smrutijz/okta-oauth-oidc-app:latest
     container_name: okta_app
     ports:
       - "8080:8080"
