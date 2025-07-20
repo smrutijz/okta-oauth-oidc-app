@@ -1,55 +1,73 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Load parameters
+# Usage check
 DOMAIN=${1:? "Usage: $0 <domain> <email>"}
 EMAIL=${2:? "Usage: $0 <domain> <email>"}
 
-echo "🏷️ Installing for domain: $DOMAIN with email: $EMAIL"
+echo "🏷️ Setting up for domain: $DOMAIN with email: $EMAIL"
 
-# Install Docker Engine
-sudo apt-get update -y
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-  sudo tee /etc/apt/keyrings/docker.asc > /dev/null
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-  https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update -y
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+# ------------------------
+# 🐳 Install Docker if not already installed
+# ------------------------
+if ! command -v docker &> /dev/null; then
+  echo "🛠 Installing Docker..."
+  sudo apt-get update -y
+  sudo apt-get install -y ca-certificates curl gnupg lsb-release
+  sudo mkdir -p /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo tee /etc/apt/keyrings/docker.asc > /dev/null
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+    https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
+    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+  sudo apt-get update -y
+  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+else
+  echo "✅ Docker already installed"
+fi
 
-# Install Docker Compose plugin
-sudo apt-get install -y docker-compose-plugin
+# Start Docker if not running
+sudo systemctl start docker
 
-echo "✅ Docker Compose installed and available as 'docker compose'"
+# ------------------------
+# 🌐 Install Nginx and Certbot
+# ------------------------
+echo "🌐 Installing Nginx and Certbot..."
+sudo apt-get install -y nginx certbot python3-certbot-nginx
 
-# Install Certbot
-sudo apt-get install -y certbot python3-certbot-nginx
-
-# Create temporary HTTP-only Nginx config for Let's Encrypt
-sudo tee /etc/nginx/sites-available/$DOMAIN.tmp >/dev/null <<EOF
+# ------------------------
+# 🔒 Temporary Nginx config for Certbot challenge
+# ------------------------
+echo "⚙️ Configuring Nginx for Let's Encrypt challenge..."
+sudo tee /etc/nginx/sites-available/$DOMAIN-temp >/dev/null <<EOF
 server {
   listen 80;
   server_name $DOMAIN;
+
   location /.well-known/acme-challenge/ {
     root /var/www/html;
   }
+
   location / {
     return 200 'OK';
     add_header Content-Type text/plain;
   }
 }
 EOF
-sudo ln -sf /etc/nginx/sites-available/$DOMAIN.tmp /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
 
-# Request SSL certificate via Certbot
+sudo ln -sf /etc/nginx/sites-available/$DOMAIN-temp /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+
+# ------------------------
+# 🔐 Obtain SSL Certificate
+# ------------------------
+echo "🔐 Requesting SSL certificate from Let's Encrypt..."
 sudo certbot --non-interactive --agree-tos --email "$EMAIL" --nginx -d "$DOMAIN"
 
-# Create final HTTPS Nginx config
+# ------------------------
+# 🔁 Final Nginx Reverse Proxy Configuration
+# ------------------------
+echo "🔁 Setting up final Nginx reverse proxy config..."
+
 sudo tee /etc/nginx/sites-available/$DOMAIN >/dev/null <<EOF
 server {
   listen 80;
@@ -60,9 +78,9 @@ server {
 server {
   listen 443 ssl;
   listen [::]:443 ssl;
-  http2 on;
 
   server_name $DOMAIN;
+
   ssl_certificate     /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
   include             /etc/letsencrypt/options-ssl-nginx.conf;
@@ -78,15 +96,17 @@ server {
   }
 }
 EOF
+
 sudo ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
+sudo nginx -t && sudo systemctl reload nginx
 
-# Launch the Flask app using Docker Compose
-echo "🚀 Launching Flask app via Docker Compose..."
-sudo docker compose up --build -d
-sudo systemctl start docker
-sudo docker compose up --build -d
+# ------------------------
+# 🚀 Launch Docker App
+# ------------------------
+echo "🚀 Launching app with Docker Compose..."
+sudo docker compose pull
+sudo docker compose up -d
 
-echo "✅ Deployment complete! 🎉"
-echo "👉 Your app is available at: https://$DOMAIN"
+echo ""
+echo "✅ Deployment complete!"
+echo "🌍 Visit: https://$DOMAIN"
