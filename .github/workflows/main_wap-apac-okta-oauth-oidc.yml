@@ -30,7 +30,9 @@ jobs:
       uses: docker/build-push-action@v3
       with:
         push: true
-        tags: index.docker.io/${{ secrets.AzureAppService_ContainerUsername_b317f7552f184de98fa1c976468f2b27 }}/okta-oauth-oidc-app:${{ github.sha }}
+        tags: |
+          index.docker.io/${{ secrets.AzureAppService_ContainerUsername_b317f7552f184de98fa1c976468f2b27 }}/okta-oauth-oidc-app:${{ github.sha }}
+          index.docker.io/${{ secrets.AzureAppService_ContainerUsername_b317f7552f184de98fa1c976468f2b27 }}/okta-oauth-oidc-app:latest
         file: ./Dockerfile
 
   deploy:
